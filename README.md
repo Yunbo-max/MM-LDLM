@@ -1,4 +1,4 @@
-# MM-DLM — Multimodal Latent Diffusion Language Models (focused)
+# MM-LDLM — Multimodal Latent Diffusion Language Models
 
 This repository contains code for latent reasoning and multimodal MMDiT models (text ↔ latent, image ↔ latent) and accompanying preprocessing and baseline code. The README here focuses on the latent/text/image MMDiT workflows and how to preprocess data, run encoders, and start training the latent models. Baseline code (HDLM, MDLM, AR, GIDD+) is preserved in the `baseline` and `baseline_latent` folders.
 
