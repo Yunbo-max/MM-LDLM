@@ -71,7 +71,7 @@ Make sure embedding dimensionality from the encoder matches the `--dim-text` / m
 
 ---
 
-## Baselines (kept for comparison)
+## Baselines
 
 The repo preserves baseline implementations. See:
 
