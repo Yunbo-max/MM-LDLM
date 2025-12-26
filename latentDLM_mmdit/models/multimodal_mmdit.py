@@ -37,17 +37,25 @@ class TimestepEmbedder(nn.Module):
     def timestep_embedding(t, dim, max_period=10000):
         """Create sinusoidal timestep embeddings."""
         half = dim // 2
+        
+        # Use float32 for calculations, then convert to target dtype
+        device = t.device
         freqs = torch.exp(
-            - math.log(max_period)
-            * torch.arange(start=0, end=half, dtype=torch.float32, device=t.device)
-            / half)
+            -math.log(max_period) 
+            * torch.arange(start=0, end=half, dtype=torch.float32, device=device) 
+            / half
+        )
+        
+        # Use t in float32 for calculation
         args = t[:, None].float() * freqs[None]
         embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
+        
         if dim % 2:
             embedding = torch.cat(
-                [embedding,
-                torch.zeros_like(embedding[:, :1])], dim=-1)
-        return embedding
+                [embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
+        
+        # Convert to same dtype as t
+        return embedding.to(dtype=t.dtype)
 
     def forward(self, t):
         t_freq = self.timestep_embedding(t, self.frequency_embedding_size)
@@ -255,6 +263,7 @@ class MultimodalMMDiT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
     def forward(self, text_tokens, latents, text_timesteps, latent_timesteps, attention_mask=None):
         # Encode text
         text_emb = self.text_encoder(text_tokens)
+        model_dtype = next(self.parameters()).dtype
         
         # Encode latents (if provided)
         if latents is not None:

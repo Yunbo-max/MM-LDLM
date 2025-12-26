@@ -23,6 +23,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 # Allow running from repo root or subdirs
 sys.path.append("..")
 sys.path.append(".")
+os.environ["WANDB_MODE"] = "disabled"
 
 # Import MMDiT components
 from latentDLM_mmdit.models.multimodal_mmdit import MultimodalMMDiT
@@ -129,20 +130,200 @@ class ContinuousDiffusion:
         return torch.rand(batch_size, device=device)
 
 
-class MultimodalDiffusionTrainer(nn.Module):
-    """Trainer for MMDiT with both text and latent diffusion."""
+# class MultimodalDiffusionTrainer(nn.Module):
+#     """Trainer for MMDiT with both text and latent diffusion."""
 
-    def __init__(self, model, tokenizer, text_noise_schedule, latent_diffusion, dtype: torch.dtype):
+#     def __init__(self, model, tokenizer, text_noise_schedule, latent_diffusion, dtype: torch.dtype):
+#         super().__init__()
+#         self.model = model
+#         self.tokenizer = tokenizer
+#         self.text_noise_schedule = text_noise_schedule
+#         self.latent_diffusion = latent_diffusion
+#         self.dtype = dtype
+
+#         self.mask_token_id = tokenizer.mask_token_id
+
+#     def forward(self, batch, force_transitting: bool = False):
+#         # Extract data
+#         input_ids = batch["input_ids"]
+#         attention_mask = batch.get("attention_mask", None)
+#         latents = batch.get("latent", None)
+
+#         batch_size = input_ids.shape[0]
+#         device = input_ids.device
+
+#         # Sample timesteps for text diffusion
+#         text_t = torch.rand(batch_size, device=device)
+#         text_sigma = text_t.to(dtype=self.dtype)
+
+#         # Apply text diffusion (masked diffusion)
+#         noisy_input_ids = self.text_noise_schedule.sample_zt(input_ids, text_sigma)
+#         text_target = input_ids
+#         text_mask = (noisy_input_ids == self.mask_token_id)
+
+#         # Handle latent diffusion
+#         latent_t = None
+#         noisy_latents = None
+#         latent_target = None
+
+#         if latents is not None:
+#             latents = latents.to(device=device, dtype=self.dtype)
+
+#             # Reduce possible sequence dimension -> [B, D]
+#             if latents.dim() == 3:
+#                 if latents.shape[1] == 1:
+#                     latents = latents.squeeze(1)
+#                 else:
+#                     latents = latents.mean(dim=1)
+
+#             # Sample timesteps for latent diffusion
+#             latent_t = self.latent_diffusion.sample_timesteps(batch_size, device=device)
+#             latent_t = latent_t.to(dtype=self.dtype)
+
+#             # Add noise to latents
+#             noise = torch.randn_like(latents)
+#             noisy_latents, latent_noise = self.latent_diffusion.add_noise(latents, latent_t, noise)
+#             latent_target = latent_noise
+
+#             # Make shapes compatible with common MMDiT APIs ([B, 1, D])
+#             if noisy_latents is not None and noisy_latents.dim() == 2:
+#                 noisy_latents = noisy_latents.unsqueeze(1)
+#             if latent_target is not None and latent_target.dim() == 2:
+#                 latent_target = latent_target.unsqueeze(1)
+
+#         # Forward pass through MMDiT
+#         if latent_t is None:
+#             latent_t = torch.zeros(batch_size, device=device, dtype=self.dtype)
+
+#         # Convert attention_mask to boolean if needed
+#         if attention_mask is not None and attention_mask.dtype != torch.bool:
+#             attention_mask = attention_mask.bool()
+
+#         text_logits, latent_pred = self.model(
+#             text_tokens=noisy_input_ids,
+#             latents=noisy_latents,
+#             text_timesteps=text_sigma,
+#             latent_timesteps=latent_t,
+#             attention_mask=attention_mask,
+#         )
+
+#         vocab_size = text_logits.shape[-1]
+
+#         # Text loss (denoising objective)
+#         text_loss = F.cross_entropy(
+#             text_logits.reshape(-1, vocab_size),
+#             text_target.reshape(-1),
+#             ignore_index=-100,
+#         ).to(dtype=text_logits.dtype)
+
+#         # Latent loss (MSE on noise prediction) - only if latents exist
+#         latent_loss = torch.tensor(0.0, device=device, dtype=text_loss.dtype)
+#         if latent_pred is not None and latent_target is not None:
+#             # Avoid silent broadcasting: align singleton dims if present
+#             if latent_pred.dim() == 3 and latent_target.dim() == 2:
+#                 latent_target = latent_target.unsqueeze(1)
+#             if latent_pred.dim() == 2 and latent_target.dim() == 3 and latent_target.shape[1] == 1:
+#                 latent_target = latent_target.squeeze(1)
+#             if latent_pred.shape != latent_target.shape:
+#                 raise ValueError(
+#                     f"latent_pred/latent_target shape mismatch: {latent_pred.shape} vs {latent_target.shape}"
+#                 )
+#             latent_loss = F.mse_loss(latent_pred, latent_target)
+
+#         total_loss = text_loss + latent_loss
+
+#         # Compute metrics
+#         with torch.no_grad():
+#             pred_tokens = torch.argmax(text_logits, dim=-1)
+#             if text_mask.any():
+#                 text_accuracy = (pred_tokens[text_mask] == text_target[text_mask]).float().mean().item()
+#             else:
+#                 text_accuracy = 0.0
+
+#             metrics = {
+#                 "loss": float(total_loss.item()),
+#                 "text_loss": float(text_loss.item()),
+#                 "latent_loss": float(latent_loss.item()),
+#                 "text_accuracy": float(text_accuracy),
+#             }
+
+#             if latents is not None:
+#                 metrics["latent_norm"] = float(latents.norm(dim=-1).mean().item())
+#                 if latent_pred is not None:
+#                     metrics["latent_pred_norm"] = float(latent_pred.norm(dim=-1).mean().item())
+
+#         return total_loss, metrics
+
+
+class MultimodalDiffusionTrainer(nn.Module):
+    def __init__(self, model, tokenizer, text_noise_schedule, latent_diffusion, 
+                 dtype: torch.dtype, config):
+        
         super().__init__()
         self.model = model
         self.tokenizer = tokenizer
         self.text_noise_schedule = text_noise_schedule
         self.latent_diffusion = latent_diffusion
         self.dtype = dtype
-
+        self.config = config
+        
         self.mask_token_id = tokenizer.mask_token_id
-
-    def forward(self, batch, force_transitting: bool = False):
+        
+        # Loss type configuration
+        self.loss_type = config.training.loss_type
+        self.loss_weights = getattr(config.training, "loss_type_weights", {})
+        
+        # For sequential training
+        self.current_epoch = 0
+        self.sequential_schedule = getattr(config.training, "sequential_schedule", [])
+    
+    def get_training_mode(self, batch_idx=None):
+        """Determine which training mode to use based on config."""
+        
+        if self.loss_type == "sequential" and self.sequential_schedule:
+            # Sequential training by epoch
+            total_epochs = sum(s["epochs"] for s in self.sequential_schedule)
+            current_epoch = self.current_epoch % total_epochs
+            
+            cumulative = 0
+            for schedule in self.sequential_schedule:
+                cumulative += schedule["epochs"]
+                if current_epoch < cumulative:
+                    return schedule["type"]
+            
+            # Fallback
+            return "mixed"
+        
+        elif self.loss_type == "mixed":
+            # Weighted random sampling based on config weights
+            modes = ["unconditional", "l2t", "t2l", "partial"]
+            weights = [
+                self.loss_weights.get("unconditional", 0.25),
+                self.loss_weights.get("l2t", 0.25),
+                self.loss_weights.get("t2l", 0.25),
+                self.loss_weights.get("partial", 0.25)
+            ]
+            # Normalize weights
+            weights = torch.tensor(weights) / sum(weights)
+            return np.random.choice(modes, p=weights.numpy())
+        
+        elif self.loss_type == "alternating":
+            # Alternate between modes every N batches
+            if batch_idx is None:
+                batch_idx = 0
+            cycle_length = getattr(self.config.training, "alternating_cycle", 100)
+            mode_idx = (batch_idx // cycle_length) % 4
+            modes = ["unconditional", "l2t", "t2l", "partial"]
+            return modes[mode_idx]
+        
+        else:
+            # Fixed mode: "unconditional", "l2t", or "t2l"
+            return self.loss_type
+    
+    def forward(self, batch, batch_idx=None, force_transitting: bool = False):
+        # Get current training mode
+        mode = self.get_training_mode(batch_idx)
+        
         # Extract data
         input_ids = batch["input_ids"]
         attention_mask = batch.get("attention_mask", None)
@@ -150,109 +331,191 @@ class MultimodalDiffusionTrainer(nn.Module):
 
         batch_size = input_ids.shape[0]
         device = input_ids.device
-
-        # Sample timesteps for text diffusion
-        text_t = torch.rand(batch_size, device=device)
-        text_sigma = text_t.to(dtype=self.dtype)
-
-        # Apply text diffusion (masked diffusion)
-        noisy_input_ids = self.text_noise_schedule.sample_zt(input_ids, text_sigma)
-        text_target = input_ids
-        text_mask = (noisy_input_ids == self.mask_token_id)
-
-        # Handle latent diffusion
+        
+        # Initialize variables
+        text_t = None
         latent_t = None
+        noisy_input_ids = None
         noisy_latents = None
+        text_target = None
+        text_mask = None
         latent_target = None
-
-        if latents is not None:
-            latents = latents.to(device=device, dtype=self.dtype)
-
-            # Reduce possible sequence dimension -> [B, D]
-            if latents.dim() == 3:
-                if latents.shape[1] == 1:
+        
+        # Text timestep sampling
+        def sample_text_t():
+            return torch.rand(batch_size, device=device)
+        
+        # Latent timestep sampling
+        def sample_latent_t():
+            return self.latent_diffusion.sample_timesteps(batch_size, device=device)
+        
+        # ===== MODE: Unconditional/Joint Generation =====
+        if mode == "unconditional":
+            # Both modalities get noise
+            text_t = sample_text_t()
+            latent_t = sample_latent_t() if latents is not None else None
+            
+            noisy_input_ids = self.text_noise_schedule.sample_zt(input_ids, text_t)
+            text_target = input_ids
+            text_mask = (noisy_input_ids == self.mask_token_id)
+            
+            if latents is not None:
+                latents = latents.to(device=device, dtype=self.dtype)
+                if latents.dim() == 3 and latents.shape[1] == 1:
                     latents = latents.squeeze(1)
-                else:
-                    latents = latents.mean(dim=1)
-
-            # Sample timesteps for latent diffusion
-            latent_t = self.latent_diffusion.sample_timesteps(batch_size, device=device)
+                noise = torch.randn_like(latents)
+                noisy_latents, latent_target = self.latent_diffusion.add_noise(
+                    latents, latent_t, noise
+                )
+            
+            text_loss_weight = 1.0
+            latent_loss_weight = 1.0
+            
+        # ===== MODE: Latent → Text =====
+        elif mode == "l2t":
+            # Text: fully masked (generate from latents)
+            text_t = torch.ones(batch_size, device=device)  # Full noise
+            noisy_input_ids = torch.full_like(input_ids, self.mask_token_id)
+            text_target = input_ids
+            text_mask = torch.ones_like(text_target, dtype=torch.bool)  # All masked
+            
+            # Latent: clean (conditioning)
+            latent_t = torch.zeros(batch_size, device=device) if latents is not None else None
+            if latents is not None:
+                latents = latents.to(device=device, dtype=self.dtype)
+                if latents.dim() == 3 and latents.shape[1] == 1:
+                    latents = latents.squeeze(1)
+                noisy_latents = latents  # Clean latent as input
+                latent_target = torch.zeros_like(latents)  # Zero target for MSE
+            
+            text_loss_weight = 1.0
+            latent_loss_weight = 0.0  # No latent loss for this mode
+            
+        # ===== MODE: Text → Latent =====
+        elif mode == "t2l":
+            # Text: clean (conditioning)
+            text_t = torch.zeros(batch_size, device=device)
+            noisy_input_ids = input_ids  # Clean text
+            text_target = input_ids
+            text_mask = torch.zeros_like(text_target, dtype=torch.bool)  # No masking
+            
+            # Latent: fully noisy (generate from text)
+            latent_t = torch.ones(batch_size, device=device) if latents is not None else None
+            if latents is not None:
+                latents = latents.to(device=device, dtype=self.dtype)
+                if latents.dim() == 3 and latents.shape[1] == 1:
+                    latents = latents.squeeze(1)
+                noise = torch.randn_like(latents)
+                noisy_latents, latent_target = self.latent_diffusion.add_noise(
+                    latents, latent_t, noise
+                )
+            
+            text_loss_weight = 0.0  # No text loss for this mode
+            latent_loss_weight = 1.0
+            
+        # ===== MODE: Partial Conditioning =====
+        elif mode == "partial":
+            # Both partially noisy (some information from each)
+            text_t = torch.rand(batch_size, device=device) * 0.5  # Up to 50% masking
+            latent_t = torch.rand(batch_size, device=device) * 0.5 if latents is not None else None
+            
+            noisy_input_ids = self.text_noise_schedule.sample_zt(input_ids, text_t)
+            text_target = input_ids
+            text_mask = (noisy_input_ids == self.mask_token_id)
+            
+            if latents is not None:
+                latents = latents.to(device=device, dtype=self.dtype)
+                if latents.dim() == 3 and latents.shape[1] == 1:
+                    latents = latents.squeeze(1)
+                noise = torch.randn_like(latents)
+                noisy_latents, latent_target = self.latent_diffusion.add_noise(
+                    latents, latent_t, noise
+                )
+            
+            text_loss_weight = 1.0
+            latent_loss_weight = 1.0
+        
+        # ===== FORWARD PASS =====
+        text_sigma = text_t.to(dtype=self.dtype)
+        if latent_t is not None:
             latent_t = latent_t.to(dtype=self.dtype)
-
-            # Add noise to latents
-            noise = torch.randn_like(latents)
-            noisy_latents, latent_noise = self.latent_diffusion.add_noise(latents, latent_t, noise)
-            latent_target = latent_noise
-
-            # Make shapes compatible with common MMDiT APIs ([B, 1, D])
-            if noisy_latents is not None and noisy_latents.dim() == 2:
-                noisy_latents = noisy_latents.unsqueeze(1)
-            if latent_target is not None and latent_target.dim() == 2:
-                latent_target = latent_target.unsqueeze(1)
-
-        # Forward pass through MMDiT
-        if latent_t is None:
-            latent_t = torch.zeros(batch_size, device=device, dtype=self.dtype)
-
-        # Convert attention_mask to boolean if needed
+        
+        # Handle attention mask
         if attention_mask is not None and attention_mask.dtype != torch.bool:
             attention_mask = attention_mask.bool()
-
+        
+        # Forward pass
         text_logits, latent_pred = self.model(
             text_tokens=noisy_input_ids,
-            latents=noisy_latents,
+            latents=noisy_latents.unsqueeze(1) if noisy_latents is not None else None,
             text_timesteps=text_sigma,
             latent_timesteps=latent_t,
             attention_mask=attention_mask,
         )
-
+        
         vocab_size = text_logits.shape[-1]
-
-        # Text loss (denoising objective)
-        text_loss = F.cross_entropy(
-            text_logits.reshape(-1, vocab_size),
-            text_target.reshape(-1),
-            ignore_index=-100,
-        )
-
-        # Latent loss (MSE on noise prediction) - only if latents exist
-        latent_loss = torch.tensor(0.0, device=device, dtype=text_loss.dtype)
-        if latent_pred is not None and latent_target is not None:
-            # Avoid silent broadcasting: align singleton dims if present
+        
+        # ===== LOSS CALCULATION =====
+        # Text loss
+        if text_loss_weight > 0:
+            if text_mask is not None and text_mask.any():
+                text_loss_unmasked = F.cross_entropy(
+                    text_logits.view(-1, vocab_size),
+                    text_target.view(-1),
+                    ignore_index=-100,
+                    reduction='none'
+                )
+                text_loss = (text_loss_unmasked * text_mask.view(-1)).sum() / text_mask.sum().clamp(min=1)
+            else:
+                text_loss = torch.tensor(0.0, device=device, dtype=self.dtype)
+        else:
+            text_loss = torch.tensor(0.0, device=device, dtype=self.dtype)
+        
+        # Latent loss
+        if (latent_loss_weight > 0 and latent_pred is not None and 
+            latent_target is not None and not torch.all(latent_target == 0)):
+            # Ensure shapes match
             if latent_pred.dim() == 3 and latent_target.dim() == 2:
                 latent_target = latent_target.unsqueeze(1)
             if latent_pred.dim() == 2 and latent_target.dim() == 3 and latent_target.shape[1] == 1:
                 latent_target = latent_target.squeeze(1)
+            
+            # Handle shape mismatches
             if latent_pred.shape != latent_target.shape:
-                raise ValueError(
-                    f"latent_pred/latent_target shape mismatch: {latent_pred.shape} vs {latent_target.shape}"
-                )
+                if latent_pred.dim() == 3 and latent_pred.shape[1] > 1:
+                    latent_pred = latent_pred.mean(dim=1)
+                if latent_target.dim() == 3 and latent_target.shape[1] > 1:
+                    latent_target = latent_target.mean(dim=1)
+            
             latent_loss = F.mse_loss(latent_pred, latent_target)
-
-        total_loss = text_loss + latent_loss
-
-        # Compute metrics
+        else:
+            latent_loss = torch.tensor(0.0, device=device, dtype=self.dtype)
+        
+        # Weighted total loss
+        total_loss = text_loss_weight * text_loss + latent_loss_weight * latent_loss
+        
+        # ===== METRICS =====
         with torch.no_grad():
             pred_tokens = torch.argmax(text_logits, dim=-1)
-            if text_mask.any():
+            if text_mask is not None and text_mask.any():
                 text_accuracy = (pred_tokens[text_mask] == text_target[text_mask]).float().mean().item()
             else:
                 text_accuracy = 0.0
-
+            
             metrics = {
                 "loss": float(total_loss.item()),
                 "text_loss": float(text_loss.item()),
                 "latent_loss": float(latent_loss.item()),
                 "text_accuracy": float(text_accuracy),
+                "mode": mode,  # Track which mode was used
             }
-
+            
             if latents is not None:
                 metrics["latent_norm"] = float(latents.norm(dim=-1).mean().item())
                 if latent_pred is not None:
                     metrics["latent_pred_norm"] = float(latent_pred.norm(dim=-1).mean().item())
-
+        
         return total_loss, metrics
-
 
 def _init_distributed() -> tuple[int, int, int, bool, bool]:
     """Initialize distributed training if launched with torchrun.
@@ -324,6 +587,14 @@ def main(config):
     torch.set_float32_matmul_precision("high")
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
+    
+    # BF16-specific optimizations (if available)
+    if hasattr(torch.backends.cuda, 'matmul') and hasattr(torch.backends.cuda.matmul, 'allow_bf16_reduced_precision_reduction'):
+        torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = True
+    if hasattr(torch.backends.cudnn, 'allow_bf16_reduced_precision_reduction'):
+        torch.backends.cudnn.allow_bf16_reduced_precision_reduction = True
+    print("BF16 optimizations enabled")
+        
     try:
         torch.backends.cuda.enable_flash_sdp(True)  # PyTorch 2.1+
     except Exception:
@@ -348,6 +619,8 @@ def main(config):
             latent_dim=config.model.get("latent_dim", 768),
             cluster_size=config.model.get("cluster_size", 0),
         ).to(device=device, dtype=dtype)
+        
+        
 
         text_noise_schedule = MaskedDiffusion(tokenizer)
 
@@ -362,6 +635,7 @@ def main(config):
             text_noise_schedule=text_noise_schedule,
             latent_diffusion=latent_diffusion,
             dtype=dtype,
+            config=config
         ).to(device=device)
 
         optimizer = get_optimizer(config, trainer)

@@ -6,14 +6,23 @@ defaults:
 
 data:
   dataset_name: "json"
-  latent_data_root: "/inspire/hdd/global_user/zhangjiaquan-253108540222/latent/HDLM/mmdit/data_root"
+  latent_data_root: "/inspire/hdd/global_user/zhangjiaquan-253108540222/latent/MM-LDLM/preprocessed_data/e5_1024d_full"
   data_files:
     train: "${data.latent_data_root}/train_data.json"
     validation: "${data.latent_data_root}/train_data.json"
   num_workers: 4
   max_length: 512
   tokenizer_name: "bert-base-uncased"
-
+  
+  
+  # For "sequential" mode - epochs per task
+  sequential_schedule:
+    - {type: "unconditional", epochs: 200000}
+    - {type: "l2t", epochs: 300000}
+    - {type: "t2l", epochs: 300000}
+    - {type: "mixed", epochs: 2000000}
+    
+    
 model:
   # Model type
   type: "multimodal_mmdit"
@@ -22,8 +31,8 @@ model:
   
   # Architecture parameters
   hidden_size: 1024
-  n_blocks: 12
-  n_heads: 12
+  n_blocks: 24
+  n_heads: 24
   cond_dim: 1024
   max_seq_len: 1024
   dropout: 0.1
@@ -48,12 +57,20 @@ training:
   train_batch_size: 16
   eval_batch_size: 16
   num_train_steps: 250000
-  dtype: fp32
+  dtype: bf16
   compile_model: false
   lr_schedule: cosine
   warmup_steps: 5000
   resume: null
   world_size: 1  # Will be set automatically
+  loss_type: "mixed"  # Options: "unconditional", "l2t", "t2l", "mixed", "sequential"
+  
+  # For "mixed" mode - weights for each loss type
+  loss_type_weights:
+  unconditional: 0.25
+  l2t: 0.25
+  t2l: 0.25
+  partial: 0.25
 
 loss:
   loss_type: multimodal_mdlm
@@ -81,3 +98,8 @@ optimizer:
   beta2: 0.95
   eps: 1e-8
   grad_clip_norm: 1.0
+  
+tokenizer:
+  name: "bert-base-uncased"
+  cache_dir: "/inspire/hdd/global_user/zhangjiaquan-253108540222/latent/MM-LDLM//data/huggingface"
+  local_files_only: true

@@ -141,12 +141,12 @@ torchrun --nnodes 1 --nproc_per_node 1 baseline_latent/train_cross_dit.py \
 torchrun --nnodes 1 --nproc_per_node 1 latentDLM_mmdit/train_mmdit.py \
   --config-name mmdit \
   logging.run_name="mmdit-training-h200" \
-  training.train_batch_size=80 \
-  training.eval_batch_size=80 \
+  training.train_batch_size=16 \
+  training.eval_batch_size=16 \
   training.num_train_steps=25000 \
   training.compile_model=false \
-  model.latent_dim=768 \
-  training.dtype=fp32
+  model.latent_dim=1024 \
+  training.dtype=bf16
 ```
 
 

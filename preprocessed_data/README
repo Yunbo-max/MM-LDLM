@@ -7,45 +7,46 @@ Examples:
 - With T5-large on 2 GPUs
 
 ```bash
-torchrun --nnodes=1 --nproc_per_node=2 prepare_data_distributed.py \
+torchrun --nnodes=1 --nproc_per_node=2 preprocessed_data/prepare_data_multi_gpu.py \
   --datasets openwebtext \
   --latent-model t5 \
   --batch-size 128 \
-  --output-dir t5_1024d_full
+  	--max-samples 10000000 \
+  --output-dir preprocessed_data/t5_1024d_full
 ```
 
 
 - With SONAR on 2 GPUs
 
 ```bash
-torchrun --nnodes=1 --nproc_per_node=2 prepare_data_multi_gpu.py \
+torchrun --nnodes=1 --nproc_per_node=2 preprocessed_data/prepare_data_multi_gpu.py \
 	--datasets openwebtext \
 	--latent-model sonar \
 	--batch-size 128 \
 	--max-samples 10000000 \
-	--output-dir sonar_1024d_full
+	--output-dir preprocessed_data/sonar_1024d_full
 ```
 
 - With E5 (multilingual-e5-large) on 4 GPUs
 
 ```bash
-torchrun --nnodes=1 --nproc_per_node=4 prepare_data_multi_gpu.py \
+torchrun --nnodes=1 --nproc_per_node=4 preprocessed_data/prepare_data_multi_gpu.py \
 	--datasets openwebtext \
 	--latent-model e5 \
 	--batch-size 256 \
 	--max-samples 10000000 \
-	--output-dir e5_1024d_full
+	--output-dir preprocessed_data/e5_1024d_full
 ```
 
 - With Qwen on 2 GPUs (careful with memory!)
 
 ```bash
-torchrun --nnodes=1 --nproc_per_node=2 prepare_data_multi_gpu.py \
+torchrun --nnodes=1 --nproc_per_node=2 preprocessed_data/prepare_data_multi_gpu.py \
 	--datasets openwebtext \
 	--latent-model qwen \
 	--batch-size 8 \
 	--max-samples 10000000 \
-	--output-dir qwen_1024d_full
+	--output-dir preprocessed_data/qwen_1024d_full
 ```
 
 Supported latent models:

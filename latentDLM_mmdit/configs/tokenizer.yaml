@@ -1,0 +1,4 @@
+tokenizer:
+  name: "bert-base-uncased"
+  cache_dir: "/jiaquan/latent/MM-LDLM/data/huggingface"
+  local_files_only: true

@@ -6,7 +6,7 @@ defaults:
 
 data:
   dataset_name: "json"
-  latent_data_root: "/inspire/hdd/global_user/zhangjiaquan-253108540222/latent/HDLM/mmdit/data_root_1024d"
+  latent_data_root: "/inspire/hdd/global_user/zhangjiaquan-253108540222/latent/latent/MM-LDLM/preprocessed_data/e5_1024d_full"
   data_files:
     train: "${data.latent_data_root}/train_data.json"
     validation: "${data.latent_data_root}/train_data.json"
