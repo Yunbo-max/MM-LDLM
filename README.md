@@ -36,7 +36,7 @@ Example preprocessing (from `preprocessed_data/README`):
 
 ```bash
 # SONAR on 2 GPUs
-torchrun --nnodes=1 --nproc_per_node=1 preprocessed_data/prepare_data_multi_gpu.py \
+torchrun --nnodes=1 --nproc_per_node=2 preprocessed_data/prepare_data_multi_gpu.py \
   --datasets openwebtext \
   --latent-model sonar \
   --batch-size 128 \
@@ -138,7 +138,7 @@ torchrun --nnodes 1 --nproc_per_node 1 baseline_latent/train_cross_dit.py \
 
 ```bash
 # MMDiT training run (use bf16 for faster/memory-efficient runs on supported hardware)
-torchrun --nnodes 1 --nproc_per_node 1 latentDLM_mmdit/train_mmdit.py \
+torchrun --nnodes 1 --nproc_per_node 2 latentDLM_mmdit/train_mmdit.py \
   --config-name mmdit \
   logging.run_name="mmdit-training-h200" \
   training.train_batch_size=16 \

@@ -4,15 +4,23 @@ import math
 import torch
 
 
-def parse_dtype(dtype):
-    if dtype == "fp16":
-        return torch.float16
-    elif dtype == "fp32":
+def parse_dtype(dtype_str: str) -> torch.dtype:
+    """Parse dtype string to torch.dtype."""
+    if dtype_str is None:
         return torch.float32
-    elif dtype == "bf16":
+    
+    dtype_str = dtype_str.lower().strip()
+    
+    if dtype_str in ["bf16", "bfloat16"]:
         return torch.bfloat16
+    elif dtype_str in ["fp16", "float16", "half"]:
+        return torch.float16
+    elif dtype_str in ["fp32", "float32", "float"]:
+        return torch.float32
+    elif dtype_str in ["fp64", "float64", "double"]:
+        return torch.float64
     else:
-        raise ValueError(f"Unknown dtype: {dtype}")
+        raise ValueError(f"Unknown dtype: {dtype_str}")
 
 
 def get_lr(config, lr, step):

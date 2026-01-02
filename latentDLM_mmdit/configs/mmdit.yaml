@@ -63,14 +63,17 @@ training:
   warmup_steps: 5000
   resume: null
   world_size: 1  # Will be set automatically
-  loss_type: "mixed"  # Options: "unconditional", "l2t", "t2l", "mixed", "sequential"
+  loss_type: "l2t"  # Options: "unconditional", "l2t", "t2l", "mixed"
+  
+  # Save frequency
+  save_every_n_steps: 5000  # Save model every 5000 steps
   
   # For "mixed" mode - weights for each loss type
-  loss_type_weights:
-  unconditional: 0.25
-  l2t: 0.25
-  t2l: 0.25
-  partial: 0.25
+  # loss_type_weights:
+  #     unconditional: 0.25
+  #     l2t: 0.25
+  #     t2l: 0.25
+  #     partial: 0.25
 
 loss:
   loss_type: multimodal_mdlm
@@ -89,6 +92,9 @@ logging:
   save_freq: 5000
   num_eval_batches: 50
   save_dir: "./outputs"
+  
+
+
 
 optimizer:
   name: "adamw"

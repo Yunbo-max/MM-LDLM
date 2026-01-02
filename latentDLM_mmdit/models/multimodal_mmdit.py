@@ -189,6 +189,8 @@ class MultimodalMMDiT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
 
         if not has_mmdit:
             raise ImportError("MMDiT package not available. Please install it.")
+        
+        self.conditional_mode = None  # None, "l2t", "t2l"
 
         self.config = config
         self.vocab_size = vocab_size
