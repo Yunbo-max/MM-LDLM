@@ -1,0 +1,107 @@
+# File: configs/mmdit_preprocessed.yaml
+defaults:
+  - logging: default
+  - optimizer: adam
+  - _self_
+
+data:
+  # dataset_name: "json"
+  latent_data_root: "/inspire/hdd/global_user/zhangjiaquan-253108540222/latent/MM-LDLM/preprocessed_data/e5_1024d_full"
+  data_files:
+    train: "${data.latent_data_root}/train_data.json"
+    validation: "${data.latent_data_root}/train_data.json"
+  
+  # NEW: Preprocessed data settings
+  use_preprocessed: true
+  preprocessed_dir: "/inspire/hdd/global_user/zhangjiaquan-253108540222/latent/MM-LDLM/preprocessed_data_parallel"
+  preprocessed_file: "${data.preprocessed_dir}/train_data_tokenized.pkl"
+  
+  # REDUCED: Since data is pre-tokenized, we need fewer workers
+  num_workers: 128  # Changed from 128 to 8 (drastically reduced!)
+  max_length: 512
+  tokenizer_name: "bert-base-uncased"
+  
+  # For "sequential" mode - epochs per task
+  sequential_schedule:
+    - {type: "unconditional", epochs: 200000}
+    - {type: "l2t", epochs: 300000}
+    - {type: "t2l", epochs: 300000}
+    - {type: "mixed", epochs: 2000000}
+
+model:
+  # Model type
+  type: "multimodal_mmdit"
+  diffusion_process: "mdlm"  # Text uses masked diffusion
+  latent_diffusion_process: "continuous"  # Latents use continuous diffusion
+  
+  # Architecture parameters
+  hidden_size: 1024
+  n_blocks: 24
+  n_heads: 24
+  cond_dim: 1024
+  max_seq_len: 512  # Changed from 1024 to 512 to match your preprocessing
+  dropout: 0.1
+  
+  # MMDiT specific parameters
+  num_residual_streams: 2
+  qk_rmsnorm: true
+  
+  # Multimodal specific
+  use_multimodal: true
+  latent_dim: 1024
+  latent_beta_min: 0.0001
+  latent_beta_max: 0.02
+  cluster_size: 0
+  
+  # Text diffusion
+  p_uniform: 0.0
+  t_eps: 1e-4
+
+training:
+  seed: 42
+  train_batch_size: 16
+  eval_batch_size: 16
+  num_train_steps: 1000000  # Changed from 250000 to 1M (your training command)
+  dtype: bf16
+  compile_model: true  # Changed to true (your training command)
+  lr_schedule: cosine
+  warmup_steps: 5000
+  resume: null
+  world_size: 2  # Set to 2 for your nproc_per_node=2
+  loss_type: "l2t"  # Options: "unconditional", "l2t", "t2l", "mixed"
+  
+  # Save frequency (aligned with your training command)
+  save_every_n_steps: 50000  # Changed from 5000 to 50000
+
+loss:
+  loss_type: multimodal_mdlm
+  loss_scale: 1.0
+  reduction: tokenmean
+  latent_loss_weight: 1.0
+  text_loss_weight: 1.0
+
+logging:
+  run_name: "mmdit-preprocessed-l2t"  # Updated name
+  wandb_project: "mmdit"
+  wandb_entity: null
+  wandb_dir: "./outputs/"
+  log_freq: 10000  # Changed from 100 to 10000 (your training command)
+  eval_freq: 10000  # Changed from 1000 to 10000 (your training command)
+  save_freq: 50000  # Changed from 5000 to 50000 (your training command)
+  num_eval_batches: 50
+  save_dir: "./output_dir/l2t_models"  # Updated to your save dir
+
+optimizer:
+  name: "adamw"
+  lr: 1e-4
+  weight_decay: 0.01
+  beta1: 0.9
+  beta2: 0.95
+  eps: 1e-8
+  grad_clip_norm: 1.0
+  
+tokenizer:
+  name: "bert-base-uncased"
+  path: "/inspire/hdd/global_user/zhangjiaquan-253108540222/latent/MM-LDLM/data/huggingface/tokenizers/bert-base-uncased"
+  cache_dir: "/inspire/hdd/global_user/zhangjiaquan-253108540222/latent/MM-LDLM/data/huggingface"
+  local_files_only: true

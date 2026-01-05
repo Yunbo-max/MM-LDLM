@@ -5,50 +5,98 @@ from .models.multimodal_mmdit import MultimodalMMDiT
 import os
 
 
+
+# File: latentDLM_mmdit/modeling_mmdit.py (UPDATED)
+from transformers import AutoTokenizer
+import os
+from pathlib import Path
+
 def get_tokenizer(config):
-    from transformers import AutoTokenizer
-    import os
+    """Get tokenizer - reads from config"""
+    # SET THIS FIRST - BEFORE ANY TOKENIZER IMPORTS!
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
     
-    tokenizer_path = "/inspire/hdd/global_user/zhangjiaquan-253108540222/latent/MM-LDLM/data/huggingface/tokenizers/bert-base-uncased"
+    # Get tokenizer path from config
+    tokenizer_config = config.get("tokenizer", {})
+    tokenizer_path = tokenizer_config.get("path", 
+                        tokenizer_config.get("name", "bert-base-uncased"))
     
-    print(f"Checking tokenizer directory: {tokenizer_path}")
+    print(f"Loading tokenizer from: {tokenizer_path}")
     
-    # List all files
-    for root, dirs, files in os.walk(tokenizer_path):
-        for file in files:
-            print(f"  {os.path.join(root, file)}")
-    
-    # Check for required files
-    required_files = ['tokenizer.json', 'tokenizer_config.json', 'vocab.txt', 'vocab.json']
-    missing = []
-    for req in required_files:
-        if not os.path.exists(os.path.join(tokenizer_path, req)):
-            missing.append(req)
-    
-    if missing:
-        print(f"Warning: Missing tokenizer files: {missing}")
-    
-    # Try to load anyway
+    # Load tokenizer
     try:
-        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
-        print("✓ Tokenizer loaded from directory")
-    except Exception as e:
-        print(f"Failed to load from directory: {e}")
+        tokenizer = AutoTokenizer.from_pretrained(
+            tokenizer_path,
+            cache_dir=tokenizer_config.get("cache_dir", None),
+            local_files_only=tokenizer_config.get("local_files_only", False)
+        )
         
-        # Try loading as a MODEL directory (it might be a model, not tokenizer)
-        print("Trying to load tokenizer from model directory...")
-        try:
-            # Sometimes tokenizer files are in a subdirectory
-            tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, local_files_only=True)
-        except Exception as e2:
-            print(f"Also failed: {e2}")
-            
-            # Last resort: Create a simple tokenizer
-            print("Creating a fallback tokenizer...")
-            from transformers import BertTokenizerFast
-            tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
+        print(f"✓ Tokenizer loaded successfully!")
+        print(f"  Vocab size: {len(tokenizer)}")
+        print(f"  Mask token: {tokenizer.mask_token} (ID: {tokenizer.mask_token_id})")
+        print(f"  Pad token: {tokenizer.pad_token} (ID: {tokenizer.pad_token_id})")
+        print(f"  Model max length: {tokenizer.model_max_length}")
+        
+        # Ensure mask token is set
+        if tokenizer.mask_token is None:
+            print("  Adding [MASK] token...")
+            tokenizer.add_special_tokens({'mask_token': '[MASK]'})
+        
+        return tokenizer
+        
+    except Exception as e:
+        print(f"Error loading tokenizer: {e}")
+        print("Falling back to bert-base-uncased from HuggingFace...")
+        
+        # Fallback
+        tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+        print(f"Fallback tokenizer loaded. Vocab size: {len(tokenizer)}")
+        return tokenizer
     
-    return tokenizer
+# def get_tokenizer(config):
+#     from transformers import AutoTokenizer
+#     import os
+    
+#     tokenizer_path = "/inspire/hdd/global_user/zhangjiaquan-253108540222/latent/MM-LDLM/data/huggingface/tokenizers/bert-base-uncased"
+    
+#     print(f"Checking tokenizer directory: {tokenizer_path}")
+    
+#     # List all files
+#     for root, dirs, files in os.walk(tokenizer_path):
+#         for file in files:
+#             print(f"  {os.path.join(root, file)}")
+    
+#     # Check for required files
+#     required_files = ['tokenizer.json', 'tokenizer_config.json', 'vocab.txt', 'vocab.json']
+#     missing = []
+#     for req in required_files:
+#         if not os.path.exists(os.path.join(tokenizer_path, req)):
+#             missing.append(req)
+    
+#     if missing:
+#         print(f"Warning: Missing tokenizer files: {missing}")
+    
+#     # Try to load anyway
+#     try:
+#         tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+#         print("✓ Tokenizer loaded from directory")
+#     except Exception as e:
+#         print(f"Failed to load from directory: {e}")
+        
+#         # Try loading as a MODEL directory (it might be a model, not tokenizer)
+#         print("Trying to load tokenizer from model directory...")
+#         try:
+#             # Sometimes tokenizer files are in a subdirectory
+#             tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, local_files_only=True)
+#         except Exception as e2:
+#             print(f"Also failed: {e2}")
+            
+#             # Last resort: Create a simple tokenizer
+#             print("Creating a fallback tokenizer...")
+#             from transformers import BertTokenizerFast
+#             tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
+    
+#     return tokenizer
 
 
 # def get_tokenizer(config):
