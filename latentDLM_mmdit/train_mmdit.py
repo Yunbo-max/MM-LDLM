@@ -1429,12 +1429,15 @@ def main(config):
 
     # ---------------- Training loop setup ----------------
     if is_distributed and hasattr(train_dl.sampler, "set_epoch"):
-        train_dl.sampler.set_epoch(state.epoch)
+    train_dl.sampler.set_epoch(state.epoch)
     batch_iterator = iter(train_dl)
 
-    # Initialize eval dataloader
-    _ = next(iter(test_dl))
+    # Calculate total steps based on epochs
+    num_epochs = config.training.num_epochs
+    total_batches = len(train_dl)
+    total_steps = total_batches * num_epochs
 
+    # Skip batches if resuming
     if state.step - state.epoch_start_step > 0:
         for _ in tqdm.trange(
             state.step - state.epoch_start_step,
@@ -1443,6 +1446,7 @@ def main(config):
             disable=not is_main_process,
         ):
             next(batch_iterator)
+
 
     curr_time = time.time()
     trained_time = 0 if config.training.resume is None else (state.start_time - state.curr_time)
@@ -1463,49 +1467,70 @@ def main(config):
         loss_log_file = log_dir / "training_log.jsonl"
         loss_log_file.write_text("")
 
+
     # ---------------- Train ----------------
     with tqdm.tqdm(
-        total=config.training.num_train_steps,
+        total=total_steps,
         initial=state.step,
         desc="Training",
         ncols=100,
         disable=not is_main_process,
         leave=True,
     ) as pbar:
-        for step in range(state.step, config.training.num_train_steps):
+            
+        # ---------------- Train ----------------
+        # Train until we complete all epochs
+        while state.epoch < num_epochs:
             try:
                 batch = next(batch_iterator)
             except StopIteration:
+                # End of epoch
                 state.epoch += 1
-                state.epoch_start_step = step
+                state.epoch_start_step = state.step
+                
+                # Check if training is complete
+                if state.epoch >= num_epochs:
+                    break
+                    
+                # Reset for next epoch
                 if is_distributed and hasattr(train_dl.sampler, "set_epoch"):
                     train_dl.sampler.set_epoch(state.epoch)
                 batch_iterator = iter(train_dl)
                 batch = next(batch_iterator)
-
-            curr_lr = get_lr(config, max_lr, step)
+            
+            # Calculate learning rate
+            curr_lr = get_lr(config, max_lr, state.step)
             for param_group in optimizer.param_groups:
                 param_group["lr"] = curr_lr
 
             batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
-
-            loss, metrics = ddp_trainer(batch)
-
-            # Single-line progress update with key metrics
-            if step % 10 == 0 and is_main_process:
-                pbar.set_postfix(
-                    {
-                        "Loss": f"{loss.item():.4f}",
-                        "Text": f"{metrics.get('text_loss', 0.0):.4f}",
-                        "Latent": f"{metrics.get('latent_loss', 0.0):.4f}",
-                        "Acc": f"{metrics.get('text_accuracy', 0.0):.4f}",
-                    }
-                )
-
-            # Log all losses to file (every step)
+            
+            # Update trainer's current epoch if needed
+            if hasattr(ddp_trainer.module, 'current_epoch'):
+                ddp_trainer.module.current_epoch = state.epoch
+                
+            # Forward pass
+            loss, metrics = ddp_trainer(batch, batch_idx=state.step)
+            
+            # Update progress bar (every 10 steps)
+            if state.step % 10 == 0 and is_main_process:
+                progress_in_epoch = (state.step - state.epoch_start_step) / total_batches
+                pbar.set_postfix({
+                    "Epoch": f"{state.epoch}/{num_epochs}",
+                    "Progress": f"{progress_in_epoch*100:.1f}%",
+                    "Loss": f"{loss.item():.4f}",
+                    "Text": f"{metrics.get('text_loss', 0.0):.4f}",
+                    "Latent": f"{metrics.get('latent_loss', 0.0):.4f}",
+                    "Acc": f"{metrics.get('text_accuracy', 0.0):.4f}",
+                })
+            
+            # Log to file (every step)
             if is_main_process and loss_log_file is not None:
+                progress_in_epoch = (state.step - state.epoch_start_step)
                 log_entry = {
-                    "step": int(step),
+                    "epoch": int(state.epoch),
+                    "step": int(state.step),
+                    "batch_in_epoch": int(progress_in_epoch),
                     "loss": float(loss.item()),
                     "lr": float(curr_lr),
                 }
@@ -1516,6 +1541,51 @@ def main(config):
                         log_entry[key] = float(value.item())
                 with open(loss_log_file, "a") as f:
                     f.write(json.dumps(log_entry) + "\n")
+
+        # for step in range(state.step, config.training.num_train_steps):
+        #     try:
+        #         batch = next(batch_iterator)
+        #     except StopIteration:
+        #         state.epoch += 1
+        #         state.epoch_start_step = step
+        #         if is_distributed and hasattr(train_dl.sampler, "set_epoch"):
+        #             train_dl.sampler.set_epoch(state.epoch)
+        #         batch_iterator = iter(train_dl)
+        #         batch = next(batch_iterator)
+
+        #     curr_lr = get_lr(config, max_lr, step)
+        #     for param_group in optimizer.param_groups:
+        #         param_group["lr"] = curr_lr
+
+        #     batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
+
+        #     loss, metrics = ddp_trainer(batch)
+
+        #     # Single-line progress update with key metrics
+        #     if step % 10 == 0 and is_main_process:
+        #         pbar.set_postfix(
+        #             {
+        #                 "Loss": f"{loss.item():.4f}",
+        #                 "Text": f"{metrics.get('text_loss', 0.0):.4f}",
+        #                 "Latent": f"{metrics.get('latent_loss', 0.0):.4f}",
+        #                 "Acc": f"{metrics.get('text_accuracy', 0.0):.4f}",
+        #             }
+        #         )
+
+        #     # Log all losses to file (every step)
+        #     if is_main_process and loss_log_file is not None:
+        #         log_entry = {
+        #             "step": int(step),
+        #             "loss": float(loss.item()),
+        #             "lr": float(curr_lr),
+        #         }
+        #         for key, value in metrics.items():
+        #             if isinstance(value, (int, float)):
+        #                 log_entry[key] = float(value)
+        #             elif hasattr(value, "item"):
+        #                 log_entry[key] = float(value.item())
+        #         with open(loss_log_file, "a") as f:
+        #             f.write(json.dumps(log_entry) + "\n")
 
             (loss * config.loss.loss_scale).backward()
 

@@ -54,9 +54,10 @@ model:
 
 training:
   seed: 42
+  num_epochs: 50  # Train for 50 epochs
   train_batch_size: 16
   eval_batch_size: 16
-  num_train_steps: 250000
+  # num_train_steps: 250000
   dtype: bf16
   compile_model: false
   lr_schedule: cosine
